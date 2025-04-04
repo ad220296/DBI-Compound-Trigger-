@@ -67,6 +67,8 @@ END AFTER STATEMENT;
 
 END;
 /
+
+---
 ## 🧩 Aufgabe 1.2: Compound-Trigger – Mitarbeiter darf max. 20 % über dem Durchschnitt verdienen
 
 ### 📌 Ziel der Aufgabe
