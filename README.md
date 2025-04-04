@@ -69,7 +69,7 @@ END;
 /
 ```
 
-## 🧩 Aufgabe 1.2: Compound Trigger – Gehalt darf maximal 20 % über dem Durchschnitt liegen
+## 🧩 Aufgabe 1.2.1: Compound Trigger – Gehalt darf maximal 20 % über dem Durchschnitt liegen
 
 ### 🎯 Ziel
 Beim `INSERT` oder `UPDATE` auf die Tabelle `emp` soll sichergestellt werden, dass das Gehalt nicht mehr als **20 % über dem aktuellen Durchschnittsgehalt** aller Mitarbeiter liegt.
@@ -130,4 +130,64 @@ values (8002, 'ZuvielTest', 9999, 30);
 
 -- 🔍 Überprüfung: Haben die Kürzungen funktioniert?
 select empno, ename, sal from emp where empno in (8001, 8002);
+```
+## 🧩 Aufgabe 1.2.2: Gehalt darf max. 20 % über dem Durchschnitt der eigenen Abteilung liegen
+
+### 🎯 Ziel
+
+Beim Einfügen oder Aktualisieren von Mitarbeiterdaten soll das Gehalt nicht mehr als **20 % über dem Durchschnitt der jeweiligen Abteilung** liegen.
+
+Da der Durchschnitt **je Abteilung** berechnet werden muss, verwenden wir eine **PL/SQL-Collection (Nested Table)**, um die Werte zwischen Statement- und Row-Teil zu übertragen.
+
+### 🧩 Trigger-Code
+
+```sql
+create or replace trigger trg_limit_sal_by_avg_per_dept
+for insert or update of sal on emp 
+compound trigger
+
+    -- 📦 Tabelle zur Speicherung der Grenzwerte je Abteilung (deptno -> max_gehalt)
+    type dept_avg_tab is table of number index by pls_integer;
+    deptno_avgsal dept_avg_tab;
+
+    -- 🔷 Wird einmal vor dem gesamten Statement ausgeführt
+    before statement is 
+    begin
+        for rec in (select deptno, avg(sal) as avg_sal from emp group by deptno) loop
+            deptno_avgsal(rec.deptno) := rec.avg_sal * 1.2;   -- 🧮 Maximalwert = Durchschnitt + 20 %
+        end loop;
+        dbms_output.put_line('⏱️ Durchschnittswerte pro Abteilung berechnet.');
+    end before statement;
+
+    -- 🔷 Wird für jede betroffene Zeile vor dem Einfügen/Aktualisieren ausgeführt
+    before each row is
+    begin
+        if :new.sal > deptno_avgsal(:new.deptno) then         -- ❗ Überprüfung auf Abteilungslimit
+            dbms_output.put_line(
+                '⚠️ Gehalt (' || :new.sal || ') über Abteilungslimit (' 
+                || round(deptno_avgsal(:new.deptno), 2) || ') → wird reduziert.');
+            :new.sal := deptno_avgsal(:new.deptno);           -- ✂️ Anpassung durchführen
+        end if;
+    end before each row;
+
+end;
+/
+```
+
+### 🧪 Testfälle
+
+```sql
+-- ✅ Gehalt zu hoch für Abteilung → wird gekürzt
+insert into emp (empno, ename, job, sal, deptno)
+values (9001, 'MEGA', 'CLERK', 9000, 10);
+
+-- ✅ Gehalt im Rahmen → bleibt bestehen
+insert into emp (empno, ename, job, sal, deptno)
+values (9002, 'OKAY', 'CLERK', 2500, 10);
+
+-- ✅ Update mit zu hohem Wert → wird wieder gekürzt
+update emp set sal = 9999 where empno = 9002;
+
+-- 🔍 Kontrolle
+select empno, ename, sal, deptno from emp where empno in (9001, 9002);
 ```
