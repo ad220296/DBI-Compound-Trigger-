@@ -69,52 +69,65 @@ END;
 /
 ```
 
-## 🧩 Aufgabe 1.2: Compound-Trigger – Mitarbeiter darf max. 20 % über dem Durchschnitt verdienen
+## 🧩 Aufgabe 1.2: Compound Trigger – Gehalt darf maximal 20 % über dem Durchschnitt liegen
 
-### 📌 Ziel der Aufgabe
+### 🎯 Ziel
+Beim `INSERT` oder `UPDATE` auf die Tabelle `emp` soll sichergestellt werden, dass das Gehalt nicht mehr als **20 % über dem aktuellen Durchschnittsgehalt** aller Mitarbeiter liegt.
 
-Ein **Compound-Trigger** soll sicherstellen, dass kein Mitarbeiter mehr als **20 % über dem aktuellen Durchschnittsgehalt** aller Mitarbeiter verdient.
-
-Wenn ein neues Gehalt diesen Grenzwert überschreitet, wird es automatisch auf das erlaubte Maximum gesetzt.
-
----
-
-### 🧠 Warum ein Compound Trigger?
-
-Ein normaler `BEFORE EACH ROW`-Trigger darf während der Zeilenverarbeitung **nicht auf dieselbe Tabelle** zugreifen (z. B. um den Durchschnitt zu berechnen).
-
-➡️ Ein **Compound-Trigger** erlaubt im `BEFORE STATEMENT` den Zugriff auf die Tabelle (z. B. `AVG(sal)`)  
-und nutzt diesen Wert dann im `BEFORE EACH ROW`.
+Ein **Compound Trigger** berechnet einmal **vor der gesamten Operation** den Durchschnittswert und prüft **für jede betroffene Zeile**, ob das neue Gehalt zulässig ist. Falls nicht, wird es automatisch angepasst.
 
 ---
 
-### 🧩 Trigger-Implementierung
+### 🧩 Trigger-Definition
 
 ```sql
-CREATE OR REPLACE TRIGGER trg_limit_to_avg
-FOR INSERT OR UPDATE OF sal ON emp
-COMPOUND TRIGGER
+set serveroutput on;
 
-    -- 📦 Variable für den berechneten Durchschnitt
-    avg_sal NUMBER;
-    max_sal NUMBER;
+create or replace trigger trg_limit_sal_new_emp
+for insert or update of sal on emp
+compound trigger
 
--- 🔷 1. Wird einmal vor der gesamten DML-Operation ausgeführt
-BEFORE STATEMENT IS
-BEGIN
-    SELECT AVG(sal) INTO avg_sal FROM emp;                         -- 🔍 Durchschnitt berechnen
-    max_sal := avg_sal * 1.2;                                      -- 🧮 Maximal erlaubt = +20 %
-    dbms_output.put_line('⏱️ Erlaubtes Maximum: ' || ROUND(max_sal, 2));
-END BEFORE STATEMENT;
+    -- 🔸 Gemeinsame Variablen, sichtbar in allen Abschnitten
+    avg_sal number;                                        -- 📦 Durchschnittsgehalt über alle Mitarbeiter
+    max_sal number;                                        -- 📦 Obergrenze = 120 % vom Durchschnitt
 
--- 🔷 2. Wird für jede Zeile ausgeführt (Zeilen-Trigger)
-BEFORE EACH ROW IS
-BEGIN
-    IF :NEW.sal > max_sal THEN                                     -- ❗ Wenn neues Gehalt zu hoch
-        dbms_output.put_line('⚠️ Gehalt reduziert von ' || :NEW.sal || ' auf ' || ROUND(max_sal, 2));
-        :NEW.sal := max_sal;                                       -- 🔧 Begrenzung setzen
-    END IF;
-END BEFORE EACH ROW;
+    -- 🔷 1. Wird EINMAL vor dem gesamten DML-Statement ausgeführt
+    before statement is
+    begin
+        select avg(sal) into avg_sal from emp;             -- 🔍 Durchschnitt berechnen
+        max_sal := avg_sal * 1.2;                          -- 🧮 Obergrenze = Durchschnitt + 20 %
+        dbms_output.put_line('⏱️ Erlaubtes Maximum: ' || round(max_sal, 2)); -- 🖨️ Info ausgeben
+    end before statement;
 
-END;
+    -- 🔷 2. Wird für JEDE betroffene Zeile einzeln ausgeführt
+    before each row is
+    begin
+        -- ❗ Prüfung: Ist das neue Gehalt zu hoch?
+        if :new.sal > max_sal then
+            -- 🖨️ Hinweis auf Kürzung
+            dbms_output.put_line('⚠️ Gehalt reduziert von ' || :new.sal || ' auf ' || round(max_sal, 2));
+            -- ✂️ Gehalt kürzen
+            :new.sal := max_sal;
+        end if;
+    end before each row;
+
+end;
 /
+```
+
+---
+
+### 🧪 Testfälle
+
+```sql
+-- ✅ Insert mit zulässigem Gehalt
+insert into emp (empno, ename, sal, deptno)
+values (8001, 'OkayTest', 2500, 30);
+
+-- ❌ Insert mit zu hohem Gehalt → wird automatisch gekürzt
+insert into emp (empno, ename, sal, deptno)
+values (8002, 'ZuvielTest', 9999, 30);
+
+-- 🔍 Überprüfung: Haben die Kürzungen funktioniert?
+select empno, ename, sal from emp where empno in (8001, 8002);
+```
