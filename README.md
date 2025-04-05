@@ -311,3 +311,45 @@ delete from emp where empno = 9001;
 -- 🔍 Kontrolle
 select * from dept where deptno not in (select deptno from emp);
 ```
+# 🧩 Zusammenfassung: Compound-Trigger – Überblick der Aufgaben 1.2.1 bis 1.2.4
+
+---
+
+## 📌 Worum geht’s?
+
+In den Aufgaben 1.2.1 bis 1.2.4 lernen wir verschiedene **Einsatzmöglichkeiten für Compound-Trigger** kennen – immer dann, wenn **Vorab-Berechnungen auf Tabellenebene** nötig sind, die **nicht direkt im Row-Trigger möglich** wären.
+
+---
+
+## 📊 Aufgaben im Überblick
+
+| Aufgabe     | Thema / Regel                                                          | Aktion bei Verletzung              | Triggerteile genutzt              |
+|-------------|------------------------------------------------------------------------|------------------------------------|-----------------------------------|
+| **1.2.1**   | Gehalt darf max. 20 % über dem Durchschnitt **aller Mitarbeiter** liegen | Gehalt wird automatisch gekürzt    | `BEFORE STATEMENT`, `BEFORE EACH ROW` |
+| **1.2.2**   | Gehalt darf max. 20 % über dem Durchschnitt **der eigenen Abteilung** liegen | Gehalt wird automatisch gekürzt    | `BEFORE STATEMENT`, `BEFORE EACH ROW` |
+| **1.2.3**   | **Letzter Mitarbeiter** einer Abteilung darf **nicht gelöscht werden**     | Löschung wird verhindert (Fehler)  | `BEFORE STATEMENT`, `BEFORE EACH ROW` |
+| **1.2.4**   | Wird der **letzte Mitarbeiter** gelöscht, wird die **Abteilung mitgelöscht** | Abteilung wird gelöscht automatisch | `BEFORE STATEMENT`, `AFTER EACH ROW`  |
+
+---
+
+## 🆚 Was ist der Unterschied zwischen 1.2.3 und 1.2.4?
+
+| Vergleichspunkt                 | **1.2.3 – Verhindern**                             | **1.2.4 – Mitlöschen**                                |
+|--------------------------------|----------------------------------------------------|--------------------------------------------------------|
+| ❗ Ziel                         | Letzten MA **nicht löschen lassen**               | Letzten MA löschen **und Abteilung mitlöschen**       |
+| 🚫 Verhalten bei letzter MA     | `raise_application_error`                         | `delete from dept`                                     |
+| 🧠 Trigger-Logik                | Vor dem Löschen prüfen                            | Nach dem Löschen prüfen                                |
+| 🔁 Triggerabschnitt             | `BEFORE EACH ROW`                                 | `AFTER EACH ROW`                                       |
+| ⏱️ Zeitpunkt                   | Prüfung passiert **vor der Zeile**                | Aktion passiert **nachdem die Zeile gelöscht wurde**   |
+
+---
+
+## 💡 Wann was verwenden?
+
+| Situation                                                 | Lösung                      |
+|------------------------------------------------------------|-----------------------------|
+| Werte über alle Zeilen hinweg vergleichen                 | `BEFORE STATEMENT` nutzen   |
+| Einzelne Zeilen kontrollieren oder anpassen               | `BEFORE EACH ROW` nutzen    |
+| Reaktion **nachdem** etwas gelöscht oder geändert wurde   | `AFTER EACH ROW` nutzen     |
+| Kombination aus beiden Ebenen nötig                       | Compound-Trigger verwenden  |
+
