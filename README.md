@@ -192,59 +192,45 @@ update emp set sal = 9999 where empno = 9002;
 select empno, ename, sal, deptno from emp where empno in (9001, 9002);
 ```
 
-## 🧩 Aufgabe 1.2.3: Letzter Mitarbeiter darf NICHT gelöscht werden
+## 🧩 Aufgabe 1.2.3: Letzten Mitarbeiter einer Abteilung NICHT löschen
 
 ### 🎯 Ziel
 
-Beim Löschen eines Mitarbeiters (`DELETE`) soll sichergestellt werden, dass eine Abteilung **mindestens einen Mitarbeiter** behält.  
-Wird versucht, den **letzten Mitarbeiter einer Abteilung zu löschen**, wird der Vorgang mit einer **sprechenden Fehlermeldung** abgebrochen.
+Beim Löschen eines Mitarbeiters soll sichergestellt werden, dass **mindestens ein Mitarbeiter in jeder Abteilung verbleibt**.  
+Wenn versucht wird, den **letzten Mitarbeiter einer Abteilung zu löschen**, wird ein **Fehler ausgelöst** und das Löschen verhindert.
 
-Dazu verwenden wir einen **Compound Trigger**:
+### 💡 Idee
 
-- Der **`BEFORE STATEMENT`**-Block zählt die Mitarbeiter je Abteilung **einmal vor der Löschaktion**.
-- Der **`BEFORE EACH ROW`**-Block prüft dann für **jede betroffene Zeile**, ob der betroffene Mitarbeiter der **letzte seiner Abteilung** ist.
+Da man in einem `BEFORE EACH ROW` Trigger **nicht direkt** auf dieselbe Tabelle zugreifen darf, wird die Anzahl der Mitarbeiter **vorher** (im `BEFORE STATEMENT`) für jede Abteilung berechnet und **zwischengespeichert**.  
+Im Zeilen-Teil (`BEFORE EACH ROW`) wird dann mit dieser Information geprüft, ob der Mitarbeiter der **letzte** ist.
 
 ---
 
 ### 🧩 Trigger-Code
 
 ```sql
-set serveroutput on;
-
 create or replace trigger trg_no_delete_last_emp
 for delete on emp
 compound trigger
 
-    -- 📦 Assoziatives Array: Abteilungsnummer (deptno) → Mitarbeiteranzahl (count)
+    -- 📦 Assoziatives Array: speichert MA-Anzahl pro Abteilung (Index: deptno)
     type dept_emp_count_tab is table of pls_integer index by pls_integer;
     emp_count_by_dept dept_emp_count_tab;
 
-    -- 🔷 Wird einmal VOR dem gesamten DELETE-Statement ausgeführt
+    -- 🔷 Wird EINMAL vor dem gesamten Löschvorgang ausgeführt
     before statement is
     begin
-        -- 🔍 Mitarbeiteranzahl je Abteilung zählen
-        for rec in (
-            select deptno, count(*) as emp_count
-            from emp
-            group by deptno
-        ) loop
-            emp_count_by_dept(rec.deptno) := rec.emp_count;
+        for rec in (select deptno, count(*) as emp_count from emp group by deptno) loop
+            emp_count_by_dept(rec.deptno) := rec.emp_count;  -- 🧮 Anzahl zwischenspeichern
         end loop;
-
-        dbms_output.put_line('📋 Mitarbeiteranzahl pro Abteilung geladen.');
+        dbms_output.put_line('⏱️ Mitarbeiteranzahl pro Abteilung wurde geladen.');
     end before statement;
 
-    -- 🔷 Wird für JEDE zu löschende Zeile einzeln ausgeführt
+    -- 🔷 Wird FÜR JEDE zu löschende Zeile einzeln ausgeführt
     before each row is
     begin
-        -- ❗ Wenn nur noch 1 MA in der Abteilung vorhanden → Löschen nicht erlaubt
-        if emp_count_by_dept.exists(:old.deptno)
-           and emp_count_by_dept(:old.deptno) = 1 then
-           
-            raise_application_error(
-                -20003,
-                '❌ Letzter Mitarbeiter der Abteilung – Löschen nicht erlaubt!'
-            );
+        if emp_count_by_dept.exists(:old.deptno) and emp_count_by_dept(:old.deptno) = 1 then
+            raise_application_error(-20003, '❌ Letzter Mitarbeiter der Abteilung – Löschen nicht erlaubt!');
         end if;
     end before each row;
 
@@ -257,13 +243,71 @@ end;
 ### 🧪 Testfälle
 
 ```sql
--- ✅ Gültiger Löschvorgang: Abteilung hat noch weitere Mitarbeiter
+-- ✅ Gültiger Löschvorgang: In der Abteilung sind noch andere MA
 delete from emp where empno = 7369;
 
--- ❌ Ungültiger Löschvorgang: letzter Mitarbeiter der Abteilung → Fehler
-delete from emp where empno = 9999;
+-- ❌ Ungültiger Löschvorgang: letzter MA → Fehler
+delete from emp where empno = 9999;  -- Angenommen, 9999 ist der einzige in seiner Abteilung
 
--- 🔍 Kontrolle: Mitarbeiteranzahl je Abteilung anzeigen
+-- 🔍 Kontrolle: MA-Anzahl je Abteilung
 select deptno, count(*) from emp group by deptno;
 ```
 
+---
+
+## 🧩 Aufgabe 1.2.4: Letzten MA löschen → Abteilung automatisch mitlöschen
+
+### 🎯 Ziel
+
+Wenn der letzte Mitarbeiter einer Abteilung gelöscht wird, soll zusätzlich auch **die zugehörige Abteilung entfernt** werden.  
+Das ist besonders sinnvoll, um verwaiste Datensätze in der `DEPT`-Tabelle zu vermeiden.
+
+---
+
+### 🧩 Trigger-Code
+
+```sql
+create or replace trigger trg_delete_last_emp_and_dept
+for delete on emp
+compound trigger
+
+    -- 📦 Tabelle zur Speicherung der MA-Anzahl pro Abteilung
+    type dept_emp_count_tab is table of pls_integer index by pls_integer;
+    emp_count_by_dept dept_emp_count_tab;
+
+    -- 🔷 Vor dem Statement: MA-Anzahl je Abteilung berechnen
+    before statement is
+    begin
+        for rec in (select deptno, count(*) as emp_count from emp group by deptno) loop
+            emp_count_by_dept(rec.deptno) := rec.emp_count;
+        end loop;
+        dbms_output.put_line('📋 MA-Zahl je Abteilung vorgemerkt.');
+    end before statement;
+
+    -- 🔷 Nach jeder Zeile prüfen: Letzter MA? Dann Abteilung löschen
+    after each row is
+    begin
+        if emp_count_by_dept.exists(:old.deptno) and emp_count_by_dept(:old.deptno) = 1 then
+            delete from dept where deptno = :old.deptno;
+            dbms_output.put_line('🏢 Letzte MA-Zeile gelöscht → Abteilung ' || :old.deptno || ' wurde entfernt.');
+        end if;
+    end after each row;
+
+end;
+/
+```
+
+---
+
+### 🧪 Testfälle
+
+```sql
+-- ✅ Löschung eines Mitarbeiters → andere bleiben → Abteilung bleibt bestehen
+delete from emp where empno = 7839;
+
+-- ✅ Löschung des letzten MA → Abteilung wird automatisch mitgelöscht
+delete from emp where empno = 9001;
+
+-- 🔍 Kontrolle
+select * from dept where deptno not in (select deptno from emp);
+```
